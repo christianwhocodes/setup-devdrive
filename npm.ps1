@@ -135,6 +135,30 @@ foreach ($entry in $userEntries) {
     Write-Host "  - $entry" -ForegroundColor DarkGray
 }
 
+# Remove default npm path if present
+$defaultNpmPath = Join-Path $env:APPDATA "npm"
+$defaultNpmPathNormalized = ConvertTo-NormalizedEntry $defaultNpmPath
+$hasDefaultNpmPath = $false
+
+# Filter out the default npm path if it exists
+$filteredEntries = @()
+foreach ($entry in $userEntries) {
+    $entryNormalized = ConvertTo-NormalizedEntry $entry
+    if ($entryNormalized -eq $defaultNpmPathNormalized) {
+        Write-Warn "Removing default npm path from PATH: $entry"
+        $hasDefaultNpmPath = $true
+    }
+    else {
+        $filteredEntries += $entry
+    }
+}
+
+if ($hasDefaultNpmPath) {
+    $userEntries = $filteredEntries
+    $changed = $true
+    Write-Info "Default npm PATH entry has been removed."
+}
+
 # Ensure typical default user entries exist (WindowsApps) — safe to add if missing
 $defaultUserEntries = @("$env:USERPROFILE\AppData\Local\Microsoft\WindowsApps")
 

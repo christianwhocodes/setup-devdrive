@@ -1,4 +1,4 @@
-# Setup DevDrive NPM
+# Setup Nodejs & NPM with DevDrive on Windows
 
 A PowerShell script to configure npm's global package installation and cache directories on a Windows Dev Drive for better performance.
 
@@ -15,15 +15,30 @@ Benefits of using a Dev Drive include faster I/O operations, better performance 
 
 - **Windows 11** (Dev Drive is a Windows 11 feature)
 - **PowerShell 7**
-- **Node.js & npm** installed
+- **Node.js & npm** installed (see installation steps below)
 - **Dev Drive** created and mounted (e.g., `G:\`)
+
+### Installing Node.js
+
+1. **Download the Node.js installer**:
+   - Click this link: [https://nodejs.org/dist/v25.0.0/node-v25.0.0-x64.msi](https://nodejs.org/dist/v25.0.0/node-v25.0.0-x64.msi)
+
+2. **Run the installer**:
+   - Open the downloaded MSI file
+   - Follow the installation prompts
+   - Accept the default settings (recommended)
+   - Complete the installation
+
+3. **Verify installation**:
+   - Open a new PowerShell window
+   - Run `node --version` and `npm --version` to confirm successful installation
 
 ## 🚀 Quick Start
 
 1. **Run directly from GitHub**:
 
    ```powershell
-   irm https://raw.githubusercontent.com/christianwhocodes/setup-devdrive/main/npm.ps1 | iex
+   irm https://raw.githubusercontent.com/christianwhocodes/setup-npm-devdrive/main/npm.ps1 | iex
    ```
 
 2. **Clone or download** this repository 
@@ -33,7 +48,7 @@ Benefits of using a Dev Drive include faster I/O operations, better performance 
    **Navigate** to the script directory:
    
    ```powershell
-   cd G:\christianwhocodes\public\setup-devdrive
+   cd G:\christianwhocodes\public\setup-npm-devdrive
    ```
    **Run the script**:
    
@@ -60,15 +75,19 @@ The script performs the following actions:
 
 4. ✅ Updates user PATH:
    - Adds npm bin directory to user PATH
+   - Removes default npm path if present
+   - Ensures required default paths exist (like WindowsApps)
+   - Fixes malformed PATH entries with missing semicolons
    - Updates current session PATH for immediate use
 
 5. ✅ Creates/updates `~/.npmrc`:
-   - Backs up existing file with timestamp
+   - Backs up existing file with timestamp (as `.npmrc.bak.YYYYMMDDHHMMSS`)
    - Adds or updates `prefix` and `cache` settings
 
 6. ✅ Verifies configuration:
    - Checks npm settings
-   - Validates directory creation
+   - Validates PATH format
+   - Confirms directory creation with visual indicators
 
 ## ⚙️ Customization
 
@@ -118,8 +137,12 @@ After running the script:
 - Run PowerShell as your regular user (admin not required for user-scope changes)
 
 **Old npm location still being used:**
-- Delete the old `.npmrc` backup if needed
+- Delete the old `.npmrc` backup if needed (located at `~/.npmrc.bak.YYYYMMDDHHMMSS`)
 - Verify environment variables: `[Environment]::GetEnvironmentVariable("NPM_CONFIG_PREFIX", "User")`
+
+**Malformed PATH entries:**
+- The script automatically fixes PATH entries with missing semicolons
+- You can verify with: `$env:Path -split ';'`
 
 **Script execution policy error:**
 - Run: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
