@@ -112,7 +112,7 @@ After running the script:
 
 2. **Install a global package**:
    ```powershell
-   npm install -g npm@latest
+   npm install -g npm@latest eslint
    npm list -g --depth=0
    ```
 
