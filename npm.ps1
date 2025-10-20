@@ -99,10 +99,40 @@ function ConvertTo-NormalizedEntry($e) {
     return $normalized.ToLowerInvariant()
 }
 
+# Fix malformed PATH: detect missing semicolons between paths by looking for drive letter patterns
+Write-Step "Checking PATH format integrity"
+if ($userPath -match '[A-Za-z]:\\[^;]*[A-Za-z]:\\') {
+    Write-Warn "Detected malformed PATH with missing semicolons!"
+    $fixedPath = $userPath -replace '([A-Za-z]:\\[^;]*?)([A-Za-z]:\\)', '$1;$2'
+    $userPath = $fixedPath
+    Write-Ok "Path separator issues fixed"
+}
+
 # Split the user PATH into distinct entries
 $userEntries = @()
 if ($userPath) {
     $userEntries = $userPath -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+}
+
+# Additional safety check - look for suspicious entries that might be merged paths
+$cleanedEntries = @()
+foreach ($entry in $userEntries) {
+    # Check if entry contains multiple drive letters (e.g., "C:\pathD:\path")
+    if ($entry -match '^[A-Za-z]:\\.*[A-Za-z]:\\') {
+        $splitPaths = $entry -split '(?<=\\)(?=[A-Za-z]:\\)'
+        Write-Warn "Split suspicious PATH entry: $entry"
+        $cleanedEntries += $splitPaths | Where-Object { $_ -ne "" }
+    }
+    else {
+        $cleanedEntries += $entry
+    }
+}
+$userEntries = $cleanedEntries
+
+# Display current PATH for verification
+Write-Info "Current PATH entries:"
+foreach ($entry in $userEntries) {
+    Write-Host "  - $entry" -ForegroundColor DarkGray
 }
 
 # Ensure typical default user entries exist (WindowsApps) — safe to add if missing
@@ -244,30 +274,33 @@ function Write-Check($label, $value, [switch]$isOk) {
     else { Write-Host "❌ ${label}: ${value}" -ForegroundColor Red }
 }
 
+# Add path format verification
+if ($env:Path -match '[A-Za-z]:\\[^;]*[A-Za-z]:\\') {
+    Write-Check "PATH format" "Missing semicolons detected" $false
+}
+else {
+    Write-Check "PATH format" "Proper semicolon separators" -isOk
+}
+
 if (Get-Command npm -ErrorAction SilentlyContinue) {
     try {
         $npmPrefix = (npm config get prefix) -replace "`r|`n", ""
         $npmCacheGet = (npm config get cache) -replace "`r|`n", ""
+        
+        # Check if the values match the expected values
+        $prefixMatch = $npmPrefix -ieq $npmGlobal
+        $cacheMatch = $npmCacheGet -ieq $npmCache
+        
+        Write-Check "npm config get prefix" $npmPrefix -isOk:$prefixMatch
+        Write-Check "npm config get cache"  $npmCacheGet -isOk:$cacheMatch
     }
     catch {
-        $npmPrefix = ""
-        $npmCacheGet = ""
+        Write-Check "npm config get prefix" "Error retrieving" $false
+        Write-Check "npm config get cache"  "Error retrieving" $false
     }
 }
 else {
-    $npmPrefix = ""
-    $npmCacheGet = ""
-}
-
-Write-Check "npm config get prefix" $npmPrefix ($npmPrefix -and ($npmPrefix -ieq $npmGlobal))
-Write-Check "npm config get cache"  $npmCacheGet ($npmCacheGet -and ($npmCacheGet -ieq $npmCache))
-
-try {
-    $npmBinCurrent = (npm bin -g) -replace "`r|`n", ""
-    Write-Check "npm bin -g" $npmBinCurrent ($npmBinCurrent -and ($npmBinCurrent -ieq $npmBin))
-}
-catch {
-    Write-Warn "npm bin -g unavailable or npm not found"
+    Write-Check "npm" "Not found in PATH" $false
 }
 
 foreach ($d in @($npmGlobal, $npmCache, $npmBin)) {
