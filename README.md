@@ -38,7 +38,7 @@ Benefits of using a Dev Drive include faster I/O operations, better performance 
 1. **Run directly from GitHub**:
 
    ```powershell
-   irm https://raw.githubusercontent.com/christianwhocodes/setup-npm-devdrive/main/npm.ps1 | iex
+   irm https://raw.githubusercontent.com/christianwhocodes/setup-nodejs-devdrive/main/npm.ps1 | iex
    ```
 
 2. **Clone or download** this repository 
@@ -48,7 +48,7 @@ Benefits of using a Dev Drive include faster I/O operations, better performance 
    **Navigate** to the script directory:
    
    ```powershell
-   cd G:\christianwhocodes\public\setup-npm-devdrive
+   cd G:\christianwhocodes\public\setup-nodejs-devdrive
    ```
    **Run the script**:
    
