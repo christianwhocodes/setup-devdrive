@@ -75,10 +75,10 @@ catch {
     Write-Err "Failed to write npm env vars: $_"
 }
 
-# ---- Update user PATH and current session PATH ----
+# ---- Update user PATH and current session PATH (safe, append-only) ----
 Write-Step "Updating user PATH to include npm bin"
 
-# Normalize the value returned from .GetEnvironmentVariable to a string (defensive)
+# Read user PATH robustly
 $userPathRaw = [System.Environment]::GetEnvironmentVariable("Path", "User")
 if ($null -eq $userPathRaw) {
     $userPath = ""
@@ -91,30 +91,106 @@ else {
     $userPath = [string]$userPathRaw
 }
 
-# Normalize: remove trailing semicolons for concatenation safety
-$userPathTrim = $userPath.TrimEnd(';')
-$escapedBin = [regex]::Escape($npmBin)
+# Helper: normalize entries for reliable comparison
+function Normalize-Entry($e) {
+    if (-not $e) { return "" }
+    # Expand environment variables (so %USERPROFILE% normalized) without invoking complex expansion
+    $expanded = [Environment]::ExpandEnvironmentVariables($e)
+    # Trim whitespace, remove duplicate backslashes, and lower-case for case-insensitive compare
+    return ($expanded.Trim().Replace('\\','\\')).TrimEnd('\\').ToLowerInvariant()
+}
 
-if ($userPathTrim -notmatch "(^|;)$escapedBin($|;)") {
-    $newUserPath = if ($userPathTrim) { "$userPathTrim;$npmBin" } else { $npmBin }
+# Split the user PATH into distinct entries
+$userEntries = @()
+if ($userPath) {
+    $userEntries = $userPath -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+}
+
+# Ensure typical default user entries exist (WindowsApps) — safe to add if missing
+$defaultUserEntries = @("$env:USERPROFILE\AppData\Local\Microsoft\WindowsApps")
+
+# Build a hashset of normalized existing entries to avoid duplicates
+$existingNormalized = @{}
+foreach ($e in $userEntries) {
+    $key = Normalize-Entry $e
+    if ($key -ne "") { $existingNormalized[$key] = $true }
+}
+
+$changed = $false
+
+# Add default user entries if missing
+foreach ($def in $defaultUserEntries) {
+    $k = Normalize-Entry $def
+    if (-not $existingNormalized.ContainsKey($k)) {
+        $userEntries += $def
+        $existingNormalized[$k] = $true
+        $changed = $true
+        Write-Info "Adding default user PATH entry: $def"
+    }
+}
+
+# Add npm bin if missing
+$npmBinNormalized = Normalize-Entry $npmBin
+if ($npmBinNormalized -ne "" -and -not $existingNormalized.ContainsKey($npmBinNormalized)) {
+    $userEntries += $npmBin
+    $existingNormalized[$npmBinNormalized] = $true
+    $changed = $true
+    Write-Ok "Will add npm bin to user PATH: $npmBin"
+}
+else {
+    Write-Info "npm bin already present in user PATH."
+}
+
+# Only write when there's a change to avoid accidental overwrites
+if ($changed) {
+    # Re-join entries preserving order and removing exact duplicates (case-insensitive normalized)
+    $finalEntries = @()
+    $seen = @{}
+    foreach ($e in $userEntries) {
+        $k = Normalize-Entry $e
+        if ($k -and -not $seen.ContainsKey($k)) {
+            $finalEntries += $e
+            $seen[$k] = $true
+        }
+    }
+    $newUserPath = ($finalEntries -join ';')
     try {
         [System.Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
-        Write-Ok "User PATH updated to include: $npmBin"
+        Write-Ok "User PATH updated (preserved existing entries and appended missing ones)."
     }
     catch {
         Write-Err "Failed to update user PATH: $_"
     }
 }
 else {
-    Write-Info "npm bin already present in user PATH."
+    Write-Info "No changes needed to user PATH."
 }
 
-# Also update current session PATH so changes are available immediately
-# Be defensive about $env:Path type as well
+# Update current session PATH similarly (do not destroy existing session entries)
 $currentEnvPath = if ($env:Path -is [string]) { $env:Path } elseif ($null -eq $env:Path) { "" } else { [string]$env:Path }
+$currentEntries = @()
+if ($currentEnvPath) {
+    $currentEntries = $currentEnvPath -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+}
+$currentNormalized = @{}
+foreach ($e in $currentEntries) { $currentNormalized[Normalize-Entry $e] = $true }
 
-if ($currentEnvPath -notmatch "(^|;)$escapedBin($|;)") {
-    $env:Path = $currentEnvPath.TrimEnd(';') + ";" + $npmBin
+if (-not $currentNormalized.ContainsKey($npmBinNormalized)) {
+    # Append npm bin to current session PATH (preserve order)
+    $updatedCurrent = @()
+    $updatedCurrent += $currentEntries
+    $updatedCurrent += $npmBin
+    # Remove duplicates preserving first occurrence
+    $finalCurrent = @()
+    $seenC = @{}
+    foreach ($e in $updatedCurrent) {
+        $k = Normalize-Entry $e
+        if ($k -and -not $seenC.ContainsKey($k)) {
+            $finalCurrent += $e
+            $seenC[$k] = $true
+        }
+    }
+    $env:Path = ($finalCurrent -join ';')
     Write-Ok "Current session PATH updated to include: $npmBin"
 }
 else {
