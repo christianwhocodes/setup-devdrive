@@ -278,9 +278,13 @@ try {
             else { $_ }
         }
 
-        # Use a joined string when checking for presence to avoid array -match ambiguity
-        if (-not ($updated -join "`n" -match '^prefix=')) { $updated += "prefix=$npmGlobal" }
-        if (-not ($updated -join "`n" -match '^cache=')) { $updated += "cache=$npmCache" }
+        # Check if settings exist using a more reliable approach
+        $hasPrefix = ($updated | Where-Object { $_ -match '^prefix=' }).Count -gt 0
+        $hasCache = ($updated | Where-Object { $_ -match '^cache=' }).Count -gt 0
+        
+        # Only add missing entries
+        if (-not $hasPrefix) { $updated += "prefix=$npmGlobal" }
+        if (-not $hasCache) { $updated += "cache=$npmCache" }
 
         $updated | Set-Content -Path $npmrcPath -Encoding UTF8
         Write-Ok ".npmrc updated (backup saved)"
