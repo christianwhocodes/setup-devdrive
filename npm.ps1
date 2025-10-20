@@ -77,7 +77,19 @@ catch {
 
 # ---- Update user PATH and current session PATH ----
 Write-Step "Updating user PATH to include npm bin"
-$userPath = [System.Environment]::GetEnvironmentVariable("Path", "User") -or ""
+
+# Normalize the value returned from .GetEnvironmentVariable to a string (defensive)
+$userPathRaw = [System.Environment]::GetEnvironmentVariable("Path", "User")
+if ($null -eq $userPathRaw) {
+    $userPath = ""
+}
+elseif ($userPathRaw -is [string]) {
+    $userPath = $userPathRaw
+}
+else {
+    # Coerce non-string values to string defensively
+    $userPath = [string]$userPathRaw
+}
 
 # Normalize: remove trailing semicolons for concatenation safety
 $userPathTrim = $userPath.TrimEnd(';')
@@ -98,8 +110,11 @@ else {
 }
 
 # Also update current session PATH so changes are available immediately
-if ($env:Path -notmatch "(^|;)$escapedBin($|;)") {
-    $env:Path = $env:Path.TrimEnd(';') + ";" + $npmBin
+# Be defensive about $env:Path type as well
+$currentEnvPath = if ($env:Path -is [string]) { $env:Path } elseif ($null -eq $env:Path) { "" } else { [string]$env:Path }
+
+if ($currentEnvPath -notmatch "(^|;)$escapedBin($|;)") {
+    $env:Path = $currentEnvPath.TrimEnd(';') + ";" + $npmBin
     Write-Ok "Current session PATH updated to include: $npmBin"
 }
 else {
@@ -131,8 +146,9 @@ try {
             else { $_ }
         }
 
-        if (-not ($updated -match '^prefix=')) { $updated += "prefix=$npmGlobal" }
-        if (-not ($updated -match '^cache=')) { $updated += "cache=$npmCache" }
+        # Use a joined string when checking for presence to avoid array -match ambiguity
+        if (-not ($updated -join "`n" -match '^prefix=')) { $updated += "prefix=$npmGlobal" }
+        if (-not ($updated -join "`n" -match '^cache='))  { $updated += "cache=$npmCache" }
 
         $updated | Set-Content -Path $npmrcPath -Encoding UTF8
         Write-Ok ".npmrc updated (backup saved)"
