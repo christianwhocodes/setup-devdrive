@@ -14,7 +14,7 @@ Benefits of using a Dev Drive include faster I/O operations, better performance 
 ## ⚡ Prerequisites
 
 - **Windows 11** (Dev Drive is a Windows 11 feature)
-- **PowerShell 5.1+** (comes with Windows)
+- **PowerShell 7**
 - **Node.js & npm** installed
 - **Dev Drive** created and mounted (e.g., `G:\`)
 
