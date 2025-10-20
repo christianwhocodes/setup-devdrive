@@ -10,7 +10,7 @@
 
 USAGE
   Run in PowerShell (no elevation required for user-scope changes):
-    .\setup-devdrive-npm.ps1
+    .\npm.ps1
 #>
 
 # ---- Helper output functions (colored) ----
@@ -80,24 +80,23 @@ Write-Step "Updating user PATH to include npm bin"
 
 # Read user PATH robustly
 $userPathRaw = [System.Environment]::GetEnvironmentVariable("Path", "User")
-if ($null -eq $userPathRaw) {
-    $userPath = ""
-}
-elseif ($userPathRaw -is [string]) {
-    $userPath = $userPathRaw
-}
-else {
-    # Coerce non-string values to string defensively
-    $userPath = [string]$userPathRaw
-}
+if ($null -eq $userPathRaw) { $userPath = "" }
+elseif ($userPathRaw -is [string]) { $userPath = $userPathRaw }
+else { $userPath = [string]$userPathRaw }
 
 # Helper: normalize entries for reliable comparison
-function Normalize-Entry($e) {
+function ConvertTo-NormalizedEntry($e) {
     if (-not $e) { return "" }
-    # Expand environment variables (so %USERPROFILE% normalized) without invoking complex expansion
+    # Expand environment variables
     $expanded = [Environment]::ExpandEnvironmentVariables($e)
-    # Trim whitespace, remove duplicate backslashes, and lower-case for case-insensitive compare
-    return ($expanded.Trim().Replace('\\','\\')).TrimEnd('\\').ToLowerInvariant()
+    $normalized = $expanded.Trim()
+    # Replace forward slashes with backslashes and collapse duplicate backslashes
+    $normalized = $normalized -replace '/', '\'
+    # Remove trailing backslashes (but keep root like C:\)
+    if ($normalized -ne '' -and $normalized -ne '\' -and $normalized.Length -gt 1) {
+        $normalized = $normalized.TrimEnd('\')
+    }
+    return $normalized.ToLowerInvariant()
 }
 
 # Split the user PATH into distinct entries
@@ -112,7 +111,7 @@ $defaultUserEntries = @("$env:USERPROFILE\AppData\Local\Microsoft\WindowsApps")
 # Build a hashset of normalized existing entries to avoid duplicates
 $existingNormalized = @{}
 foreach ($e in $userEntries) {
-    $key = Normalize-Entry $e
+    $key = ConvertTo-NormalizedEntry $e
     if ($key -ne "") { $existingNormalized[$key] = $true }
 }
 
@@ -120,7 +119,7 @@ $changed = $false
 
 # Add default user entries if missing
 foreach ($def in $defaultUserEntries) {
-    $k = Normalize-Entry $def
+    $k = ConvertTo-NormalizedEntry $def
     if (-not $existingNormalized.ContainsKey($k)) {
         $userEntries += $def
         $existingNormalized[$k] = $true
@@ -130,7 +129,7 @@ foreach ($def in $defaultUserEntries) {
 }
 
 # Add npm bin if missing
-$npmBinNormalized = Normalize-Entry $npmBin
+$npmBinNormalized = ConvertTo-NormalizedEntry $npmBin
 if ($npmBinNormalized -ne "" -and -not $existingNormalized.ContainsKey($npmBinNormalized)) {
     $userEntries += $npmBin
     $existingNormalized[$npmBinNormalized] = $true
@@ -147,7 +146,7 @@ if ($changed) {
     $finalEntries = @()
     $seen = @{}
     foreach ($e in $userEntries) {
-        $k = Normalize-Entry $e
+        $k = ConvertTo-NormalizedEntry $e
         if ($k -and -not $seen.ContainsKey($k)) {
             $finalEntries += $e
             $seen[$k] = $true
@@ -173,7 +172,10 @@ if ($currentEnvPath) {
     $currentEntries = $currentEnvPath -split ';' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
 }
 $currentNormalized = @{}
-foreach ($e in $currentEntries) { $currentNormalized[Normalize-Entry $e] = $true }
+foreach ($e in $currentEntries) {
+    $key = ConvertTo-NormalizedEntry $e
+    if ($key -ne "") { $currentNormalized[$key] = $true }
+}
 
 if (-not $currentNormalized.ContainsKey($npmBinNormalized)) {
     # Append npm bin to current session PATH (preserve order)
@@ -184,7 +186,7 @@ if (-not $currentNormalized.ContainsKey($npmBinNormalized)) {
     $finalCurrent = @()
     $seenC = @{}
     foreach ($e in $updatedCurrent) {
-        $k = Normalize-Entry $e
+        $k = ConvertTo-NormalizedEntry $e
         if ($k -and -not $seenC.ContainsKey($k)) {
             $finalCurrent += $e
             $seenC[$k] = $true
@@ -224,7 +226,7 @@ try {
 
         # Use a joined string when checking for presence to avoid array -match ambiguity
         if (-not ($updated -join "`n" -match '^prefix=')) { $updated += "prefix=$npmGlobal" }
-        if (-not ($updated -join "`n" -match '^cache='))  { $updated += "cache=$npmCache" }
+        if (-not ($updated -join "`n" -match '^cache=')) { $updated += "cache=$npmCache" }
 
         $updated | Set-Content -Path $npmrcPath -Encoding UTF8
         Write-Ok ".npmrc updated (backup saved)"
@@ -237,13 +239,11 @@ catch {
 # ---- Verification checks (colored) ----
 Write-Step "Verifying configuration"
 
-# Helper to print a check with color (uses approved verb 'Write')
 function Write-Check($label, $value, [switch]$isOk) {
     if ($isOk) { Write-Host "✅ ${label}: ${value}" -ForegroundColor Green }
     else { Write-Host "❌ ${label}: ${value}" -ForegroundColor Red }
 }
 
-# npm prefix/cache via npm (if available)
 if (Get-Command npm -ErrorAction SilentlyContinue) {
     try {
         $npmPrefix = (npm config get prefix) -replace "`r|`n", ""
@@ -262,7 +262,6 @@ else {
 Write-Check "npm config get prefix" $npmPrefix ($npmPrefix -and ($npmPrefix -ieq $npmGlobal))
 Write-Check "npm config get cache"  $npmCacheGet ($npmCacheGet -and ($npmCacheGet -ieq $npmCache))
 
-# npm bin -g (current session)
 try {
     $npmBinCurrent = (npm bin -g) -replace "`r|`n", ""
     Write-Check "npm bin -g" $npmBinCurrent ($npmBinCurrent -and ($npmBinCurrent -ieq $npmBin))
@@ -271,23 +270,19 @@ catch {
     Write-Warn "npm bin -g unavailable or npm not found"
 }
 
-# Check directories
 foreach ($d in @($npmGlobal, $npmCache, $npmBin)) {
     if (Test-Path $d) { Write-Host "📂 Exists: $d" -ForegroundColor Green }
     else { Write-Host "📂 Missing: $d" -ForegroundColor Red }
 }
 
-# Quick user guidance
 Write-Step "Done"
 Write-Info "New environment variable values are written to the user registry."
 Write-Info "To pick them up in new shells, start a new PowerShell / CMD session or sign out and back in."
 Write-Info "If you use 'refreshenv' (Chocolatey) or a similar tool, you can reload without restarting."
 
-# Optionally show a helpful quick test command (colored)
 Write-Host "`nTry installing a global package and running it:" -ForegroundColor Cyan
 Write-Host "  npm i -g npm@latest" -ForegroundColor White
 Write-Host "  npm list -g --depth=0" -ForegroundColor White
 Write-Host "  where.exe npm" -ForegroundColor White
 
-# End
 Write-Ok "Setup script finished."
